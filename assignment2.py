@@ -449,10 +449,6 @@ def apply_cell_effect(state, move_dir, grid):
 
 
 def uniform_cost_search(start_state, grid):
-    """
-    UCS over states, using the hard-coded neighbors. Returns the goal SearchNode
-    (where state.remaining is empty) or None if no solution.
-    """
     frontier = []
     heapq.heappush(frontier, SearchNode(start_state, cost=0.0, parent=None))
     explored = {start_state: 0.0}
@@ -462,15 +458,16 @@ def uniform_cost_search(start_state, grid):
         state = node.state
         cost = node.cost
 
-        # Goal test: no remaining treasures
         if not state.remaining:
             return node
 
         r, c = state.pos
         for (nr, nc) in get_neighbors_hardcoded((r, c)):
-            if grid[nr][nc].type == 'obstacle':
+            #  ── NEW: If (nr,nc) is trap3 but already triggered, skip it ──
+            if grid[nr][nc].type == 'trap3' and ((nr, nc) in state.used_effects):
                 continue
 
+            # Otherwise, build a temporary state as usual
             dr, dc = nr - r, nc - c
             temp = State(
                 pos=(nr, nc),
@@ -480,10 +477,10 @@ def uniform_cost_search(start_state, grid):
                 used_effects=state.used_effects,
                 last_move=(dr, dc)
             )
+
             new_state, triggered = apply_cell_effect(temp, (dr, dc), grid)
             if new_state is None:
-                # Trap4 invalidated this path
-                continue
+                continue   # Trap4 invalidated this path
 
             new_cost = cost + step_cost(state)
             if new_state not in explored or new_cost < explored[new_state]:
