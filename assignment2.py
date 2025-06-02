@@ -1,10 +1,10 @@
 """
 Treasure Hunt Pathfinding with Uniform‐Cost Search (UCS) – UPDATED NEIGHBOR LIST
 
-This version corrects the neighbors of (3,4) so that it only connects to (3,5), (4,3), and (4,5).
+This version corrects the neighbors of (3,4), (4,3), (4,8), and (3,8) so that we only include valid, non‐obstacle adjacencies.
 All other logic (trap3 prevention, cell effects, etc.) remains the same.
 ---------------------------------------------------------------
-Author: died
+Author: died (updated)
 Assignment: CSC3206 Assignment 2 – Treasure Hunt
 Date: [6/6/2025] (updated)
 Python Version: 3.x
@@ -94,24 +94,35 @@ neighbors = {
 
     # === CORRECTED ENTRY FOR (3,4) ===
     # Only (3,5), (4,3), (4,5) are true hex‐adjacencies of (3,4). 
-    # We no longer list (2,3), (2,4), (3,3), or (4,4) here.
     (3,4):  [(3,5),(4,3),(4,5)],
 
     (3,5):  [(2,4),(2,5),(3,4),(3,6),(4,5),(4,6)],
     (3,6):  [(2,5),(2,6),(3,5),(3,7),(4,6),(4,7)],
     (3,7):  [(2,6),(2,7),(3,6),(3,8),(4,7),(4,8)],
-    (3,8):  [(2,7),(2,8),(3,7),(3,9),(4,8),(4,9)],
+
+    # === CORRECTED ENTRY FOR (3,8) ===
+    # Only (3,7), (2,8), (3,9), (4,9), (4,8) remain valid; (2,7) and (4,7) are not included.
+    (3,8):  [(3,7),(2,8),(3,9),(4,9),(4,8)],
+
     (3,9):  [(2,8),(2,9),(3,8),(4,9)],
 
     (4,0):  [(3,0),(3,1),(5,0),(5,1)],
     (4,1):  [(3,1),(3,2),(4,0),(4,2),(5,1),(5,2)],
     (4,2):  [(3,2),(3,3),(4,1),(4,3),(5,2),(5,3)],
-    (4,3):  [(3,3),(3,4),(4,2),(4,4),(5,3),(5,4)],
+
+    # === CORRECTED ENTRY FOR (4,3) ===
+    # Only (5,3), (5,4), (3,2), (4,2) remain valid; (3,3) and (4,4) are obstacles.
+    (4,3):  [(5,3),(5,4),(3,2),(4,2)],
+
     (4,4):  [(3,4),(3,5),(4,3),(4,5),(5,4),(5,5)],
+    
+    # === CORRECTED ENTRY FOR (4,8) ===
+    # Only (3,8), (4,9), (5,9), (5,8), (5,7) remain valid; (4,7) is an obstacle, so omitted.
+    (4,8):  [(3,8),(4,9),(5,9),(5,8),(5,7)],
+
     (4,5):  [(3,5),(3,6),(4,4),(4,6),(5,5),(5,6)],
     (4,6):  [(3,6),(3,7),(4,5),(4,7),(5,6),(5,7)],
     (4,7):  [(3,7),(3,8),(4,6),(4,8),(5,7),(5,8)],
-    (4,8):  [(3,8),(3,9),(4,7),(4,9),(5,8),(5,9)],
     (4,9):  [(3,8),(3,9),(4,8),(5,9)],
 
     (5,0):  [(4,0),(4,1),(5,1)],
@@ -378,7 +389,6 @@ def get_trap3_destination(from_pos, to_pos, grid):
     return (br, bc)
 
 
-
 # ------------------------------------------------------------
 # UNIFORM‐COST SEARCH (modified trap3 logic)
 # ------------------------------------------------------------
@@ -473,7 +483,6 @@ def uniform_cost_search(start_state, grid):
     return None
 
 
-
 # ------------------------------------------------------------
 # 8) PATH RECONSTRUCTION & PRINTING
 # ------------------------------------------------------------
@@ -545,10 +554,16 @@ if __name__ == "__main__":
     print(f"Treasures: {sorted(all_treasures)}")
     print(f"Number of treasures: {len(all_treasures)}")
 
-    # Verify the corrected neighbor relationship for (3,4)
+    # Verify corrected neighbor relationships
     print("\n=== CRITICAL NEIGHBOR VERIFICATION ===")
     print(f"Neighbors of (3,4): {get_neighbors_hardcoded((3,4))}")
-    print("These should now be [(3,5), (4,3), (4,5)].")
+    print("These should be [(3,5), (4,3), (4,5)].")
+    print(f"Neighbors of (4,3): {get_neighbors_hardcoded((4,3))}")
+    print("These should be [(5,3), (5,4), (3,2), (4,2)].")
+    print(f"Neighbors of (4,8): {get_neighbors_hardcoded((4,8))}")
+    print("These should be [(3,8), (4,9), (5,9), (5,8), (5,7)].")
+    print(f"Neighbors of (3,8): {get_neighbors_hardcoded((3,8))}")
+    print("These should be [(3,7), (2,8), (3,9), (4,9), (4,8)].")
 
     start_state = State(
         pos=start_pos,
