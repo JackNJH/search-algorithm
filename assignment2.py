@@ -396,6 +396,10 @@ def apply_cell_effect(state, move_dir, grid):
 
 
 def uniform_cost_search(start_state, grid):
+    """
+    UCS over states (using get_neighbors_hardcoded). Returns the goal SearchNode
+    (where state.remaining is empty) or None if no solution.
+    """
     frontier = []
     heapq.heappush(frontier, SearchNode(start_state, cost=0.0, parent=None))
     explored = {start_state: 0.0}
@@ -405,17 +409,25 @@ def uniform_cost_search(start_state, grid):
         state = node.state
         cost = node.cost
 
+        # 1. Goal test: did we collect all treasures?
         if not state.remaining:
             return node
 
         r, c = state.pos
+
+        # 2. Expand each hard‐coded neighbor
         for (nr, nc) in get_neighbors_hardcoded((r, c)):
-            #  ── NEW: If (nr,nc) is trap3 but already triggered, skip it ──
+            # — Skip if neighbor is an obstacle cell
+            if grid[nr][nc].type == 'obstacle':
+                continue
+
+            # — Skip if neighbor is a Trap 3 cell we've already triggered
             if grid[nr][nc].type == 'trap3' and ((nr, nc) in state.used_effects):
                 continue
 
-            # Otherwise, build a temporary state as usual
             dr, dc = nr - r, nc - c
+
+            # Build a temporary state (before applying any cell effect)
             temp = State(
                 pos=(nr, nc),
                 remaining=state.remaining,
@@ -425,18 +437,24 @@ def uniform_cost_search(start_state, grid):
                 last_move=(dr, dc)
             )
 
+            # 3. Apply trap/reward logic at (nr,nc)
             new_state, triggered = apply_cell_effect(temp, (dr, dc), grid)
             if new_state is None:
-                continue   # Trap4 invalidated this path
+                # Trap 4 invalidated the path
+                continue
 
             new_cost = cost + step_cost(state)
+
+            # 4. If this new_state is better than any seen, enqueue it
             if new_state not in explored or new_cost < explored[new_state]:
                 explored[new_state] = new_cost
                 child = SearchNode(new_state, cost=new_cost, parent=node)
                 child.triggered = triggered
                 heapq.heappush(frontier, child)
 
+    # If frontier empties without success, no solution exists
     return None
+
 
 
 # ------------------------------------------------------------
