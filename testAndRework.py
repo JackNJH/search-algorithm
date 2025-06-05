@@ -1,9 +1,13 @@
+import heapq
+from collections import namedtuple
+
 # ------------------------------------------------------------
 # 1) Defining the state space 
 # ------------------------------------------------------------ 
 # Hardcoded adjacent list instead of edge list because: 
 #   -> The map is static
 #   -> Expansion of nodes require less resources compared to edge list (extra step required)
+#   -> Fyi the state space taught in tutorial is an edge list
 
 state_space = {
     (0,0):  [(0,1),(1,0),(1,1)],
@@ -110,3 +114,449 @@ cell_type = {
     (5,5): 'reward2',  (5,6): 'empty',    (5,7): 'empty',    (5,8): 'empty',    (5,9): 'empty',
 }
 
+def get_neighbors(pos):
+    return state_space.get(pos, [])
+
+def validate_move(from_pos, to_pos):
+    """Ensure a move from from_pos -> to_pos is in the hard‐coded neighbor list."""
+    if to_pos not in get_neighbors(from_pos):
+        print(f"ILLEGAL MOVE DETECTED: {from_pos} -> {to_pos}")
+        print(f"Valid neighbors of {from_pos}: {get_neighbors(from_pos)}")
+        return False
+    return True
+
+# ------------------------------------------------------------
+# 3. Mapping out the 2D grid
+# ------------------------------------------------------------
+Cell = namedtuple('Cell', ['type', 'value']) # class Cell with 2 fields
+
+def make_grid():
+
+    rows, cols = 6, 10
+    grid = [[None]*cols for _ in range(rows)]
+    start = None
+    treasures = set()
+
+    # Loop over all the items in cell_type dictionary to create actual map
+    # This setup lets user have flexibility in changing trap / reward / treasure / obstacle locations
+    for (r, c), kind in cell_type.items():
+        if kind == 'empty':
+            grid[r][c] = Cell('empty', None)
+        elif kind == 'obstacle':
+            grid[r][c] = Cell('obstacle', None)
+        elif kind == 'start':
+            grid[r][c] = Cell('start', None)
+            start = (r, c)
+        elif kind == 'treasure':
+            grid[r][c] = Cell('treasure', None)
+            treasures.add((r, c))
+        elif kind == 'trap1':
+            grid[r][c] = Cell('trap1', None)
+        elif kind == 'trap2':
+            grid[r][c] = Cell('trap2', None)
+        elif kind == 'trap3':
+            grid[r][c] = Cell('trap3', None)
+        elif kind == 'trap4':
+            grid[r][c] = Cell('trap4', None)
+        elif kind == 'reward1':
+            grid[r][c] = Cell('reward1', None)
+        elif kind == 'reward2':
+            grid[r][c] = Cell('reward2', None)
+        else:
+            raise ValueError(f"Unknown cell code '{kind}' at {(r,c)}")
+
+    # If start node not explicitly defined, default to (0, 0).
+    if start is None:
+        start = (0, 0)
+        grid[0][0] = Cell('start', None)
+
+    return grid, start, frozenset(treasures)
+
+# ------------------------------------------------------------
+# 4) State class & Search node class
+# ------------------------------------------------------------
+class State:
+    __slots__ = ('pos', 'remaining', 'gravity', 'speed', 'used_rewards', 'used_trap3')
+    """
+    - pos: current position (r,c)
+    - remaining: frozenset of (r,c) where uncollected treasure remains
+    - gravity: float
+    - speed: float
+    - used_rewards: frozenset of (r,c) where reward1/reward2 have been triggered
+    - used_trap3: frozenset of (r,c) where trap3 has been triggered
+    """
+
+    def __init__(self, pos, remaining, gravity=1.0, speed=1.0,
+                 used_rewards=frozenset(), used_trap3=frozenset()):
+        self.pos = pos
+        self.remaining = remaining
+        self.gravity = gravity
+        self.speed = speed
+        self.used_rewards = used_rewards
+        self.used_trap3 = used_trap3
+
+    # Equality check to detect new states (e.g. explored list)
+    # This is to let python compare the values between different state instances
+    def __eq__(self, other):
+        return (
+            isinstance(other, State)
+            and self.pos == other.pos
+            and self.remaining == other.remaining
+            and abs(self.gravity - other.gravity) < 1e-9
+            and abs(self.speed - other.speed) < 1e-9
+            and self.used_rewards == other.used_rewards
+            and self.used_trap3 == other.used_trap3
+        )
+
+    # Lets python use state object as an index in a hash table
+    # Required for it to work properly in sets and dicts (e.g. explored list)
+    def __hash__(self):
+        return hash((
+            self.pos, self.remaining,
+            round(self.gravity, 9), round(self.speed, 9),
+            self.used_rewards, self.used_trap3
+        ))
+
+    # Debug
+    def __repr__(self):
+        return (f"State(pos={self.pos}, remaining={len(self.remaining)}, "
+                f"gravity={self.gravity:.2f}, speed={self.speed:.2f}, "
+                f"used_rewards={list(self.used_rewards)}, "
+                f"used_trap3={list(self.used_trap3)})")
+
+
+class SearchNode:
+    __slots__ = ('state', 'cost', 'parent', 'triggered')
+    """
+    - state: a State instance
+    - cost: cumulative floating cost
+    - parent: parent SearchNode
+    - triggered: (effect_type, coord) if a trap/reward fired on entry
+    """
+    def __init__(self, state, cost, parent=None):
+        self.state = state
+        self.cost = cost
+        self.parent = parent
+        self.triggered = None  # e.g. ('trap1',(r,c)) or ('treasure',(r,c))
+
+    def __lt__(self, other):
+        return self.cost < other.cost
+    
+    # Debug
+    def __repr__(self):
+        return f"SearchNode(state={self.state})"
+
+# ------------------------------------------------------------
+# 5) STEP COST & CELL EFFECTS
+# ------------------------------------------------------------
+def step_cost(state):
+    """ Moving one hex costs gravity × (1 / speed). """
+    return state.gravity * (1.0 / state.speed)
+
+
+def apply_cell_effect(state, grid):
+    """
+    After stepping onto state.pos, apply exactly one effect:
+    - trap1/trap2 always apply on every new visit
+    - trap3 applies only if not already in used_trap3 (then marks it used)
+    - trap4 invalidates path if any treasure remains
+    - rewards (reward1, reward2) apply only once per coordinate
+    Returns (new_state, triggered) or (None, triggered) if trap4 invalidates.
+    """
+    r, c = state.pos
+    remaining = set(state.remaining)
+    gravity = state.gravity
+    speed = state.speed
+    used_rewards = set(state.used_rewards)
+    used_trap3 = set(state.used_trap3)
+    ctype = grid[r][c].type
+    triggered = None
+
+    # 1) Collect treasure if present
+    if ctype == 'treasure' and (r, c) in remaining:
+        remaining.remove((r, c))
+        triggered = ('treasure', (r, c))
+
+    # 2) Apply traps
+    elif ctype == 'trap1':
+        gravity *= 2.0
+        triggered = ('trap1', (r, c))
+
+    elif ctype == 'trap2':
+        speed *= 0.5
+        triggered = ('trap2', (r, c))
+
+    elif ctype == 'trap3':
+        # Only trigger trap3 if not already used at this coordinate
+        if (r, c) not in used_trap3:
+            used_trap3.add((r, c))
+            triggered = ('trap3', (r, c))
+        # Otherwise, do nothing (already triggered once)
+
+    elif ctype == 'trap4':
+        triggered = ('trap4', (r, c))
+        if remaining:
+            return None, triggered
+        remaining.clear()
+
+    # 3) Apply rewards only once per coordinate
+    elif ctype == 'reward1' and ((r, c) not in used_rewards):
+        gravity *= 0.5
+        used_rewards.add((r, c))
+        triggered = ('reward1', (r, c))
+
+    elif ctype == 'reward2' and ((r, c) not in used_rewards):
+        speed *= 2.0
+        used_rewards.add((r, c))
+        triggered = ('reward2', (r, c))
+
+    new_state = State(
+        pos=(r, c),
+        remaining=frozenset(remaining),
+        gravity=gravity,
+        speed=speed,
+        used_rewards=frozenset(used_rewards),
+        used_trap3=frozenset(used_trap3)
+    )
+    return new_state, triggered
+
+# ------------------------------------------------------------
+# 6) TRAP3 HELPER
+# ------------------------------------------------------------
+def get_trap3_destination(from_pos, to_pos, grid):
+    """
+    New bounce rule (per your specification):
+      - If you attempt to move from `from_pos` onto a Trap 3 at `to_pos`,
+        compute a “one-step-back” cell behind your source. If that cell
+        is free (not obstacle/trap4), land there; otherwise, stay at from_pos.
+    """
+
+    fr, fc = from_pos
+    tr, tc = to_pos
+
+    # Compute row/col difference from source → trap
+    dr = tr - fr
+    dc = tc - fc
+
+    # Determine bounce candidate (bounce = “one hex-step behind the source”)
+    #   (a) If trap is up-right (dr == -1, dc == +1) or down-right (dr == +1, dc == +1),
+    #       bounce cell = (fr, fc - 1).
+    #   (b) If trap is up-left (dr == -1, dc == -1) or down-left (dr == +1, dc == -1),
+    #       bounce cell = (fr, fc + 1).
+    #   (c) If trap is directly above (dr == -1, dc == 0), bounce cell = (fr + 1, fc).
+    #   (d) If trap is directly below (dr == +1, dc == 0), bounce cell = (fr - 1, fc).
+    #   (e) If trap is directly right  (dr == 0, dc == +1), bounce cell = (fr, fc - 1).
+    #   (f) If trap is directly left   (dr == 0, dc == -1), bounce cell = (fr, fc + 1).
+    #   Otherwise (non-adjacent), just stay at from_pos (no bounce).
+    bounce = None
+
+    if (dr == -1 and dc == +1) or (dr == +1 and dc == +1):
+        bounce = (fr, fc - 1)
+    elif (dr == -1 and dc == -1) or (dr == +1 and dc == -1):
+        bounce = (fr, fc + 1)
+    elif dr == -1 and dc == 0:
+        bounce = (fr + 1, fc)
+    elif dr == +1 and dc == 0:
+        bounce = (fr - 1, fc)
+    elif dr == 0 and dc == +1:
+        bounce = (fr, fc - 1)
+    elif dr == 0 and dc == -1:
+        bounce = (fr, fc + 1)
+    else:
+        # Any other (e.g. non-adjacent) → no bounce
+        return from_pos
+
+    # Check if bounce is in-bounds
+    rows, cols = len(grid), len(grid[0])
+    br, bc = bounce
+    if not (0 <= br < rows and 0 <= bc < cols):
+        return from_pos
+
+    # If bounce cell is an obstacle or trap4, you cannot land there
+    if grid[br][bc].type in ('obstacle', 'trap4'):
+        return from_pos
+
+    # Otherwise the bounce succeeds
+    return (br, bc)
+
+
+# ------------------------------------------------------------
+# UNIFORM‐COST SEARCH (modified trap3 logic)
+# ------------------------------------------------------------
+def uniform_cost_search(start_state, grid):
+    """
+    UCS with:
+      - trap1, trap2, trap4, reward1, reward2, treasure, empty: you can step on them,
+        letting apply_cell_effect() enforce their effects (including trap4’s invalidation).
+      - trap3: you cannot occupy it; stepping onto it “touches” it and bounces you one hex behind your source.
+        If that bounce cell is blocked or out‐of‐bounds, you stay at source. You then apply any effect at the landing cell.
+    """
+    frontier = []
+    heapq.heappush(frontier, SearchNode(start_state, cost=0.0))
+    explored = {}   # maps State -> best cost so far
+
+    while frontier:
+        node = heapq.heappop(frontier)
+        state = node.state
+        cost = node.cost
+
+        if state in explored and explored[state] <= cost:
+            continue
+        explored[state] = cost
+
+        # Goal check: all treasures collected
+        if not state.remaining:
+            return node
+
+        (r, c) = state.pos
+        for (nr, nc) in get_neighbors((r, c)):
+            ctype = grid[nr][nc].type
+
+            # 1) If neighbor is an obstacle, skip
+            if ctype == 'obstacle':
+                continue
+
+            # 2) If neighbor is trap3: bounce logic
+            if ctype == 'trap3':
+                # Compute bounce using helper
+                actual_pos = get_trap3_destination((r, c), (nr, nc), grid)
+                bounced_from = (nr, nc)
+
+                # Build a state at actual_pos, then apply any effect there
+                temp_state = State(
+                    pos=actual_pos,
+                    remaining=state.remaining,
+                    gravity=state.gravity,
+                    speed=state.speed,
+                    used_rewards=state.used_rewards,
+                    used_trap3=frozenset()
+                )
+                new_state, _ = apply_cell_effect(temp_state, grid)
+                if new_state is None:
+                    continue  # trap4 invalidated
+
+                triggered = ('trap3', bounced_from)
+                move_cost = step_cost(state)
+                new_cost = cost + move_cost
+
+                if new_state not in explored or new_cost < explored[new_state]:
+                    child = SearchNode(new_state, cost=new_cost, parent=node)
+                    child.triggered = triggered
+                    heapq.heappush(frontier, child)
+
+                continue
+
+            # 3) For any other cell type (trap1, trap2, trap4, reward1, reward2, treasure, empty):
+            #    step onto (nr, nc), let apply_cell_effect handle it
+            move_cost = step_cost(state)
+            new_cost = cost + move_cost
+
+            actual_pos = (nr, nc)
+            temp_state = State(
+                pos=actual_pos,
+                remaining=state.remaining,
+                gravity=state.gravity,
+                speed=state.speed,
+                used_rewards=state.used_rewards,
+                used_trap3=frozenset()
+            )
+            new_state, triggered = apply_cell_effect(temp_state, grid)
+            if new_state is None:
+                continue  # trap4 invalidated path
+
+            if new_state not in explored or new_cost < explored[new_state]:
+                child = SearchNode(new_state, cost=new_cost, parent=node)
+                child.triggered = triggered
+                heapq.heappush(frontier, child)
+
+        # end for neighbors
+
+    return None
+
+
+# ------------------------------------------------------------
+# 8) PATH RECONSTRUCTION & PRINTING
+# ------------------------------------------------------------
+def reconstruct_path(goal_node):
+    """
+    Walk back through parent pointers, return (path, triggers, costs).
+    """
+    path, triggers, costs = [], [], []
+    n = goal_node
+    while n is not None:
+        path.append(n.state.pos)
+        triggers.append(n.triggered)
+        costs.append(n.cost)
+        n = n.parent
+    path.reverse()
+    triggers.reverse()
+    costs.reverse()
+
+    # Validate each direct‐neighbor step (Trap3 pushes are allowed even if they “jump” two cells)
+    print("\n=== PATH VALIDATION ===")
+    for i in range(1, len(path)):
+        prev_pos = path[i-1]
+        curr_pos = path[i]
+        trig = triggers[i]
+        if trig and trig[0] == 'trap3':
+            # A trap3 push is allowed even if it's not in the immediate neighbor list
+            continue
+        if not validate_move(prev_pos, curr_pos):
+            print(f"ERROR: Invalid move in solution path at step {i}: {prev_pos} -> {curr_pos}")
+
+    return path, triggers, costs
+
+
+def print_solution(goal_node, grid):
+    path, triggers, costs = reconstruct_path(goal_node)
+    print("\n=== SOLUTION FOUND ===")
+    print(f"Total cost: {goal_node.cost:.6f}")
+    print(f"Path length: {len(path)} steps")
+    print(f"Final state: {goal_node.state}")
+
+    print("\n=== DETAILED PATH WITH COST VERIFICATION ===")
+    for i, pos in enumerate(path):
+        r, c = pos
+        ctype = grid[r][c].type
+        cost = costs[i]
+        if i == 0:
+            print(f"Step {i+1:2d}: {pos} [{ctype:8s}] -- START (cumulative: {cost:.6f})")
+        else:
+            step_cost_val = costs[i] - costs[i-1]
+            trig = triggers[i]
+            if trig:
+                effect, coord = trig
+                print(f"Step {i+1:2d}: {pos} [{ctype:8s}] -- {effect} at {coord} "
+                      f"(step: {step_cost_val:.6f}, cumulative: {cost:.6f})")
+            else:
+                print(f"Step {i+1:2d}: {pos} [{ctype:8s}] -- moved "
+                      f"(step: {step_cost_val:.6f}, cumulative: {cost:.6f})")
+
+
+if __name__ == "__main__":
+    grid, start_pos, all_treasures = make_grid()
+
+    print("=== TREASURE HUNT SETUP ===")
+    print(f"Grid size: {len(grid)} x {len(grid[0])}")
+    print(f"Start position: {start_pos}")
+    print(f"Treasures: {sorted(all_treasures)}")
+    print(f"Number of treasures: {len(all_treasures)}")
+
+    start_state = State(
+        pos=start_pos,
+        remaining=all_treasures,
+        gravity=1.0,
+        speed=1.0,
+        used_rewards=frozenset(),
+        used_trap3=frozenset()
+    )
+
+    print(f"\nStarting state: {start_state}")
+    print("\nStarting Uniform‐Cost Search...\n")
+
+    goal_node = uniform_cost_search(start_state, grid)
+
+    if goal_node is None:
+        print("No solution found.")
+    else:
+        print_solution(goal_node, grid)
