@@ -89,7 +89,7 @@ state_space = {
 #   'treasure' = must collect
 #   'trap1'    = doubles gravity
 #   'trap2'    = halves speed 
-#   'trap3'    = pushes you two hex‐steps backward
+#   'trap3'    = pushes you two steps forwards
 #   'trap4'    = invalidates path if any treasure remains
 #   'reward1'  = halves gravity
 #   'reward2'  = doubles speed
@@ -177,14 +177,6 @@ def make_grid():
 # ------------------------------------------------------------
 class State:
     __slots__ = ('pos', 'remaining', 'gravity', 'speed', 'used_rewards', 'used_trap3')
-    """
-    - pos: current position (r,c)
-    - remaining: frozenset of (r,c) where uncollected treasure remains
-    - gravity: float
-    - speed: float
-    - used_rewards: frozenset of (r,c) where reward1/reward2 have been triggered
-    - used_trap3: frozenset of (r,c) where trap3 has been triggered
-    """
 
     def __init__(self, pos, remaining, gravity=1.0, speed=1.0,
                  used_rewards=frozenset(), used_trap3=frozenset()):
@@ -224,27 +216,27 @@ class State:
                 f"used_rewards={list(self.used_rewards)}, "
                 f"used_trap3={list(self.used_trap3)})")
 
-
+# A wrapper around State class that tracks how you got to this state (parent) and total cost. 
+# Helps with backtracking to full path later on.
 class SearchNode:
     __slots__ = ('state', 'cost', 'parent', 'triggered')
-    """
-    - state: a State instance
-    - cost: cumulative floating cost
-    - parent: parent SearchNode
-    - triggered: (effect_type, coord) if a trap/reward fired on entry
-    """
+
     def __init__(self, state, cost, parent=None):
         self.state = state
         self.cost = cost
         self.parent = parent
-        self.triggered = None  # e.g. ('trap1',(r,c)) or ('treasure',(r,c))
+        self.triggered = None
 
+    # This allows heapq to sort nodes by lowest cost
     def __lt__(self, other):
         return self.cost < other.cost
     
     # Debug
     def __repr__(self):
-        return f"SearchNode(state={self.state})"
+        return (f"SearchNode(state={self.state}, "
+               f"cost={self.cost}, "
+               f"parent={self.parent}, "
+               f"triggered={self.triggered})")
 
 # ------------------------------------------------------------
 # 5) STEP COST & CELL EFFECTS
@@ -381,19 +373,14 @@ def get_trap3_destination(from_pos, to_pos, grid):
 
 
 # ------------------------------------------------------------
-# UNIFORM‐COST SEARCH (modified trap3 logic)
+# Behold behold the search algorithm
 # ------------------------------------------------------------
 def uniform_cost_search(start_state, grid):
-    """
-    UCS with:
-      - trap1, trap2, trap4, reward1, reward2, treasure, empty: you can step on them,
-        letting apply_cell_effect() enforce their effects (including trap4’s invalidation).
-      - trap3: you cannot occupy it; stepping onto it “touches” it and bounces you one hex behind your source.
-        If that bounce cell is blocked or out‐of‐bounds, you stay at source. You then apply any effect at the landing cell.
-    """
+
+    # Queue list + explored dictionary 
     frontier = []
     heapq.heappush(frontier, SearchNode(start_state, cost=0.0))
-    explored = {}   # maps State -> best cost so far
+    explored = {}
 
     while frontier:
         node = heapq.heappop(frontier)
