@@ -89,7 +89,7 @@ state_space = {
 #   'treasure' = must collect
 #   'trap1'    = doubles gravity
 #   'trap2'    = halves speed 
-#   'trap3'    = pushes you two steps forwards
+#   'trap3'    = pushes you two steps forward
 #   'trap4'    = invalidates path if any treasure remains
 #   'reward1'  = halves gravity
 #   'reward2'  = doubles speed
@@ -307,46 +307,30 @@ def apply_cell_effect(state, grid):
 
 def get_trap3_destination(from_pos, to_pos, grid):
 
-    fr, fc = from_pos
-    tr, tc = to_pos
+    # This determines the direction the node's going
+    dr = to_pos[0] - from_pos[0]
+    dc = to_pos[1] - from_pos[1]
 
-    dr = tr - fr
-    dc = tc - fc
+    # Step 1 forward
+    step1 = (to_pos[0] + dr, to_pos[1] + dc)
+    # Step 2 forward
+    step2 = (step1[0] + dr, step1[1] + dc)
 
-    bounce = None
-
-    if (dr == -1 and dc == +1) or (dr == +1 and dc == +1):
-        bounce = (fr, fc - 1)
-    elif (dr == -1 and dc == -1) or (dr == +1 and dc == -1):
-        bounce = (fr, fc + 1)
-    elif dr == -1 and dc == 0:
-        bounce = (fr + 1, fc)
-    elif dr == +1 and dc == 0:
-        bounce = (fr - 1, fc)
-    elif dr == 0 and dc == +1:
-        bounce = (fr, fc - 1)
-    elif dr == 0 and dc == -1:
-        bounce = (fr, fc + 1)
-    else:
-        # Any other (e.g. non-adjacent) → no bounce
-        return from_pos
-
-    # Check if bounce is in-bounds
     rows, cols = len(grid), len(grid[0])
-    br, bc = bounce
-    if not (0 <= br < rows and 0 <= bc < cols):
-        return from_pos
 
-    # If bounce cell is an obstacle or trap4, you cannot land there
-    if grid[br][bc].type in ('obstacle', 'trap4'):
-        return from_pos
+    # If steps r illegal, stay at original position
+    for pos in [step1, step2]:
+        r, c = pos
+        if not (0 <= r < rows and 0 <= c < cols):
+            return from_pos 
+        if grid[r][c].type in ('obstacle', 'trap4'):
+            return from_pos
 
-    # Otherwise the bounce succeeds
-    return (br, bc)
+    return step2
 
 
 # ------------------------------------------------------------
-# 6) Behold behold the search algorithm
+# 6) Behold behold the Search Algorithm
 # ------------------------------------------------------------
 def uniform_cost_search(start_state, grid):
 
@@ -396,7 +380,7 @@ def uniform_cost_search(start_state, grid):
 
                 triggered = ('trap3', bounced_from)
                 move_cost = step_cost(state)
-                new_cost = cost + move_cost
+                new_cost = cost + (step_cost(state) * 3)
 
                 # Put neighbors into queue list
                 if new_state not in explored or new_cost < explored[new_state]:
@@ -432,7 +416,7 @@ def uniform_cost_search(start_state, grid):
 
 
 # ------------------------------------------------------------
-# 7) PATH RECONSTRUCTION & PRINTING
+# 7) Retracing path + Visuals
 # ------------------------------------------------------------
 def reconstruct_path(goal_node):
     """
