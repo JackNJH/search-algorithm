@@ -374,7 +374,7 @@ def uniform_cost_search(start_state, grid):
             new_cost = cost + move_cost
             actual_pos = (nr, nc)
 
-            # Mimic current state, then apply any effect there (to 'test' the outcome)
+            # Copy current state...
             temp_state = State(
                 pos=actual_pos,
                 remaining=state.remaining,
@@ -384,12 +384,12 @@ def uniform_cost_search(start_state, grid):
                 used_trap3=state.used_trap3
             )
 
-            # All logic from traps and rewards applied in apply_cell_effect
+            # ...then apply neighbor cell effects in apply_cell_effect
             new_state, triggered = apply_cell_effect(temp_state, grid)
             if new_state is None:
                 continue
 
-            # Put neighbors into queue list
+            # Put would-be state into queue list
             if new_state not in explored or new_cost < explored[new_state]:
                 child = SearchNode(new_state, cost=new_cost, parent=node)
                 child.triggered = triggered
