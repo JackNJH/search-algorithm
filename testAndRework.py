@@ -117,14 +117,6 @@ cell_type = {
 def get_neighbors(pos):
     return state_space.get(pos, [])
 
-def validate_move(from_pos, to_pos):
-    """Ensure a move from from_pos -> to_pos is in the hard‐coded neighbor list."""
-    if to_pos not in get_neighbors(from_pos):
-        print(f"ILLEGAL MOVE DETECTED: {from_pos} -> {to_pos}")
-        print(f"Valid neighbors of {from_pos}: {get_neighbors(from_pos)}")
-        return False
-    return True
-
 # ------------------------------------------------------------
 # 3. Mapping out the 2D grid
 # ------------------------------------------------------------
@@ -165,7 +157,7 @@ def make_grid():
         else:
             raise ValueError(f"Unknown cell code '{kind}' at {(r,c)}")
 
-    # If start node not explicitly defined, default to (0, 0).
+    # If start node not explicitly defined, default to (0, 0)
     if start is None:
         start = (0, 0)
         grid[0][0] = Cell('start', None)
@@ -216,8 +208,8 @@ class State:
                 f"used_rewards={list(self.used_rewards)}, "
                 f"used_trap3={list(self.used_trap3)})")
 
-# A wrapper around State class that tracks how you got to this state (parent) and total cost. 
-# Helps with backtracking to full path later on.
+# A wrapper around State class that tracks how you got to this state (parent) and total cost
+# Helps with backtracking to full path later on
 class SearchNode:
     __slots__ = ('state', 'cost', 'parent', 'triggered')
 
@@ -256,7 +248,7 @@ def apply_cell_effect(state, grid):
     used_rewards = set(state.used_rewards)
     used_trap3 = set(state.used_trap3)
     ctype = grid[r][c].type
-    triggered = None
+    triggered = None # helps with printing the output later
 
     # Collect treasure if present
     if ctype == 'treasure' and (r, c) in remaining_treasure:
@@ -418,40 +410,27 @@ def uniform_cost_search(start_state, grid):
 # ------------------------------------------------------------
 # 7) Retracing path + Visuals
 # ------------------------------------------------------------
-def reconstruct_path(goal_node):
-    """
-    Walk back through parent pointers, return (path, triggers, costs).
-    """
+def retrace_path(goal_node):
+
     path, triggers, costs = [], [], []
-    n = goal_node
-    while n is not None:
-        path.append(n.state.pos)
-        triggers.append(n.triggered)
-        costs.append(n.cost)
-        n = n.parent
+    while goal_node is not None:
+        path.append(goal_node.state.pos)
+        triggers.append(goal_node.triggered)
+        costs.append(goal_node.cost)
+        goal_node = goal_node.parent
+
+    # Reverse so that it becomes start -> end
     path.reverse()
     triggers.reverse()
     costs.reverse()
-
-    # Validate each direct‐neighbor step (Trap3 pushes are allowed even if they “jump” two cells)
-    print("\n=== PATH VALIDATION ===")
-    for i in range(1, len(path)):
-        prev_pos = path[i-1]
-        curr_pos = path[i]
-        trig = triggers[i]
-        if trig and trig[0] == 'trap3':
-            # A trap3 push is allowed even if it's not in the immediate neighbor list
-            continue
-        if not validate_move(prev_pos, curr_pos):
-            print(f"ERROR: Invalid move in solution path at step {i}: {prev_pos} -> {curr_pos}")
 
     return path, triggers, costs
 
 
 def print_solution(goal_node, grid):
-    path, triggers, costs = reconstruct_path(goal_node)
+    path, triggers, costs = retrace_path(goal_node)
     print("\n=== SOLUTION FOUND ===")
-    print(f"Total cost: {goal_node.cost:.6f}")
+    print(f"Total cost: {goal_node.cost:.3f}")
     print(f"Path length: {len(path)} steps")
     print(f"Final state: {goal_node.state}")
 
@@ -461,17 +440,17 @@ def print_solution(goal_node, grid):
         ctype = grid[r][c].type
         cost = costs[i]
         if i == 0:
-            print(f"Step {i+1:2d}: {pos} [{ctype:8s}] -- START (cumulative: {cost:.6f})")
+            print(f"Step {i+1:2d}: {pos} [{ctype:8s}] -- START (cumulative: {cost:.3f})")
         else:
-            step_cost_val = costs[i] - costs[i-1]
+            step_cost_val = costs[i] - costs[i-1] # calculate cost of THIS step
             trig = triggers[i]
             if trig:
                 effect, coord = trig
                 print(f"Step {i+1:2d}: {pos} [{ctype:8s}] -- {effect} at {coord} "
-                      f"(step: {step_cost_val:.6f}, cumulative: {cost:.6f})")
+                      f"(step: {step_cost_val:.3f}, cumulative: {cost:.3f})")
             else:
                 print(f"Step {i+1:2d}: {pos} [{ctype:8s}] -- moved "
-                      f"(step: {step_cost_val:.6f}, cumulative: {cost:.6f})")
+                      f"(step: {step_cost_val:.3f}, cumulative: {cost:.3f})")
 
 
 if __name__ == "__main__":
