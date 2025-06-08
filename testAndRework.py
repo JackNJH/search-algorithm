@@ -242,7 +242,7 @@ def step_cost(state):
     return state.gravity * (1.0 / state.speed)
 
 
-def apply_cell_effect(state, grid):
+def apply_cell_effect(state, grid, from_pos=None):
 
     # Get current position & properties
     r, c = state.pos
@@ -274,6 +274,35 @@ def apply_cell_effect(state, grid):
             used_trap3.add((r, c))
             triggered = ('trap3', (r, c))
 
+            if from_pos is not None:
+                print("from pos: ", from_pos)
+                # This determines the direction the node's going
+                dr = r - from_pos[0]
+                dc = c - from_pos[1]
+
+                step1 = (r + dr, c + dc)
+                step2 = (step1[0] + dr, step1[1] + dc)
+
+                rows, cols = len(grid), len(grid[0])
+
+                for pos in [step1, step2]:
+                    rr, cc = pos
+
+                    # If steps r illegal, breaks (stay at original node)
+                    if not (0 <= rr < rows and 0 <= cc < cols) or grid[rr][cc].type in ('obstacle', 'trap4'):
+                        break
+                else:
+                    # If steps r legal, recursively apply effect at new position
+                    bounce_state = State(
+                        pos=step2,
+                        remaining=frozenset(remaining_treasure),
+                        gravity=gravity,
+                        speed=speed,
+                        used_rewards=frozenset(used_rewards),
+                        used_trap3=frozenset(used_trap3)
+                    )
+                    return apply_cell_effect(bounce_state, grid, from_pos=(r, c))
+
     elif ctype == 'trap4':
         triggered = ('trap4', (r, c))
         if remaining_treasure:
@@ -299,30 +328,6 @@ def apply_cell_effect(state, grid):
         used_trap3=frozenset(used_trap3)
     )
     return new_state, triggered
-
-
-def get_trap3_destination(from_pos, to_pos, grid):
-
-    # This determines the direction the node's going
-    dr = to_pos[0] - from_pos[0]
-    dc = to_pos[1] - from_pos[1]
-
-    # Step 1 forward
-    step1 = (to_pos[0] + dr, to_pos[1] + dc)
-    # Step 2 forward
-    step2 = (step1[0] + dr, step1[1] + dc)
-
-    rows, cols = len(grid), len(grid[0])
-
-    # If steps r illegal, stay at original position
-    for pos in [step1, step2]:
-        r, c = pos
-        if not (0 <= r < rows and 0 <= c < cols):
-            return from_pos 
-        if grid[r][c].type in ('obstacle', 'trap4'):
-            return from_pos
-
-    return step2
 
 
 # ------------------------------------------------------------
@@ -356,37 +361,12 @@ def uniform_cost_search(start_state, grid):
             if ctype == 'obstacle':
                 continue
 
-            # If neighbor is trap3: jump logic
-            if ctype == 'trap3':
-                actual_pos = get_trap3_destination((r, c), (nr, nc), grid)
-                bounced_from = (nr, nc)
-
-                temp_state = State(
-                    pos=actual_pos,
-                    remaining=state.remaining,
-                    gravity=state.gravity,
-                    speed=state.speed,
-                    used_rewards=state.used_rewards,
-                    used_trap3=state.used_trap3
-                )
-                new_state, _ = apply_cell_effect(temp_state, grid)
-                if new_state is None:
-                    continue
-
-                triggered = ('trap3', bounced_from)
+            # If hex contains trap3 multiply the cost by 3
+            if grid[nr][nc].type == 'trap3':
+                move_cost = step_cost(state) * 3
+            else:
                 move_cost = step_cost(state)
-                new_cost = cost + (step_cost(state) * 3)
 
-
-                if new_state not in explored or new_cost < explored[new_state]:
-                    child = SearchNode(new_state, cost=new_cost, parent=node)
-                    child.triggered = triggered
-                    heapq.heappush(frontier, child)
-
-                continue
-
-            # For other cell types: call apply_cell_effect to handle changes made to state normally
-            move_cost = step_cost(state)
             new_cost = cost + move_cost
             actual_pos = (nr, nc)
 
@@ -399,7 +379,9 @@ def uniform_cost_search(start_state, grid):
                 used_rewards=state.used_rewards,
                 used_trap3=state.used_trap3
             )
-            new_state, triggered = apply_cell_effect(temp_state, grid)
+
+            # All logic from traps and rewards applied in apply_cell_effect
+            new_state, triggered = apply_cell_effect(temp_state, grid, from_pos=(r,c))
             if new_state is None:
                 continue
 
