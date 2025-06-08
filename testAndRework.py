@@ -239,24 +239,18 @@ class SearchNode:
                f"triggered={self.triggered})")
 
 # ------------------------------------------------------------
-# 5) STEP COST & CELL EFFECTS
+# 5) Functions for Trap/Reward/Movement logic
 # ------------------------------------------------------------
 def step_cost(state):
-    """ Moving one hex costs gravity × (1 / speed). """
+    # Moving one hex costs gravity × (1 / speed).
     return state.gravity * (1.0 / state.speed)
 
 
 def apply_cell_effect(state, grid):
-    """
-    After stepping onto state.pos, apply exactly one effect:
-    - trap1/trap2 always apply on every new visit
-    - trap3 applies only if not already in used_trap3 (then marks it used)
-    - trap4 invalidates path if any treasure remains
-    - rewards (reward1, reward2) apply only once per coordinate
-    Returns (new_state, triggered) or (None, triggered) if trap4 invalidates.
-    """
+
+    # Get current position & properties
     r, c = state.pos
-    remaining = set(state.remaining)
+    remaining_treasure = set(state.remaining)
     gravity = state.gravity
     speed = state.speed
     used_rewards = set(state.used_rewards)
@@ -264,12 +258,13 @@ def apply_cell_effect(state, grid):
     ctype = grid[r][c].type
     triggered = None
 
-    # 1) Collect treasure if present
-    if ctype == 'treasure' and (r, c) in remaining:
-        remaining.remove((r, c))
+    # Collect treasure if present
+    if ctype == 'treasure' and (r, c) in remaining_treasure:
+        remaining_treasure.remove((r, c))
         triggered = ('treasure', (r, c))
 
-    # 2) Apply traps
+    # Apply traps & rewards
+    # Note: all rewards & trap3 can only be used once
     elif ctype == 'trap1':
         gravity *= 2.0
         triggered = ('trap1', (r, c))
@@ -279,19 +274,16 @@ def apply_cell_effect(state, grid):
         triggered = ('trap2', (r, c))
 
     elif ctype == 'trap3':
-        # Only trigger trap3 if not already used at this coordinate
         if (r, c) not in used_trap3:
             used_trap3.add((r, c))
             triggered = ('trap3', (r, c))
-        # Otherwise, do nothing (already triggered once)
 
     elif ctype == 'trap4':
         triggered = ('trap4', (r, c))
-        if remaining:
+        if remaining_treasure:
             return None, triggered
-        remaining.clear()
+        remaining_treasure.clear()
 
-    # 3) Apply rewards only once per coordinate
     elif ctype == 'reward1' and ((r, c) not in used_rewards):
         gravity *= 0.5
         used_rewards.add((r, c))
@@ -304,7 +296,7 @@ def apply_cell_effect(state, grid):
 
     new_state = State(
         pos=(r, c),
-        remaining=frozenset(remaining),
+        remaining=frozenset(remaining_treasure),
         gravity=gravity,
         speed=speed,
         used_rewards=frozenset(used_rewards),
@@ -312,34 +304,15 @@ def apply_cell_effect(state, grid):
     )
     return new_state, triggered
 
-# ------------------------------------------------------------
-# 6) TRAP3 HELPER
-# ------------------------------------------------------------
+
 def get_trap3_destination(from_pos, to_pos, grid):
-    """
-    New bounce rule (per your specification):
-      - If you attempt to move from `from_pos` onto a Trap 3 at `to_pos`,
-        compute a “one-step-back” cell behind your source. If that cell
-        is free (not obstacle/trap4), land there; otherwise, stay at from_pos.
-    """
 
     fr, fc = from_pos
     tr, tc = to_pos
 
-    # Compute row/col difference from source → trap
     dr = tr - fr
     dc = tc - fc
 
-    # Determine bounce candidate (bounce = “one hex-step behind the source”)
-    #   (a) If trap is up-right (dr == -1, dc == +1) or down-right (dr == +1, dc == +1),
-    #       bounce cell = (fr, fc - 1).
-    #   (b) If trap is up-left (dr == -1, dc == -1) or down-left (dr == +1, dc == -1),
-    #       bounce cell = (fr, fc + 1).
-    #   (c) If trap is directly above (dr == -1, dc == 0), bounce cell = (fr + 1, fc).
-    #   (d) If trap is directly below (dr == +1, dc == 0), bounce cell = (fr - 1, fc).
-    #   (e) If trap is directly right  (dr == 0, dc == +1), bounce cell = (fr, fc - 1).
-    #   (f) If trap is directly left   (dr == 0, dc == -1), bounce cell = (fr, fc + 1).
-    #   Otherwise (non-adjacent), just stay at from_pos (no bounce).
     bounce = None
 
     if (dr == -1 and dc == +1) or (dr == +1 and dc == +1):
@@ -373,13 +346,12 @@ def get_trap3_destination(from_pos, to_pos, grid):
 
 
 # ------------------------------------------------------------
-# Behold behold the search algorithm
+# 6) Behold behold the search algorithm
 # ------------------------------------------------------------
 def uniform_cost_search(start_state, grid):
 
-    # Queue list + explored dictionary 
     frontier = []
-    heapq.heappush(frontier, SearchNode(start_state, cost=0.0))
+    heapq.heappush(frontier, SearchNode(start_state, cost=0.0)) # heapq sorts the frontier based on cost so we dont have to do it manually
     explored = {}
 
     while frontier:
@@ -387,11 +359,12 @@ def uniform_cost_search(start_state, grid):
         state = node.state
         cost = node.cost
 
+        # Duplication check
         if state in explored and explored[state] <= cost:
             continue
-        explored[state] = cost
+        explored[state] = cost # Store state & cost in 'explored'
 
-        # Goal check: all treasures collected
+        # Goal check
         if not state.remaining:
             return node
 
@@ -399,17 +372,16 @@ def uniform_cost_search(start_state, grid):
         for (nr, nc) in get_neighbors((r, c)):
             ctype = grid[nr][nc].type
 
-            # 1) If neighbor is an obstacle, skip
+            # If neighbor is an obstacle: skip / ignore
             if ctype == 'obstacle':
                 continue
 
-            # 2) If neighbor is trap3: bounce logic
+            # If neighbor is trap3: jump logic
             if ctype == 'trap3':
-                # Compute bounce using helper
                 actual_pos = get_trap3_destination((r, c), (nr, nc), grid)
                 bounced_from = (nr, nc)
 
-                # Build a state at actual_pos, then apply any effect there
+                # Mimic current state, then apply any effect there (to 'test' the outcome)
                 temp_state = State(
                     pos=actual_pos,
                     remaining=state.remaining,
@@ -420,12 +392,13 @@ def uniform_cost_search(start_state, grid):
                 )
                 new_state, _ = apply_cell_effect(temp_state, grid)
                 if new_state is None:
-                    continue  # trap4 invalidated
+                    continue
 
                 triggered = ('trap3', bounced_from)
                 move_cost = step_cost(state)
                 new_cost = cost + move_cost
 
+                # Put neighbors into queue list
                 if new_state not in explored or new_cost < explored[new_state]:
                     child = SearchNode(new_state, cost=new_cost, parent=node)
                     child.triggered = triggered
@@ -433,8 +406,7 @@ def uniform_cost_search(start_state, grid):
 
                 continue
 
-            # 3) For any other cell type (trap1, trap2, trap4, reward1, reward2, treasure, empty):
-            #    step onto (nr, nc), let apply_cell_effect handle it
+            # For other cell types: call apply_cell_effect to handle changes made to state normally
             move_cost = step_cost(state)
             new_cost = cost + move_cost
 
@@ -449,20 +421,18 @@ def uniform_cost_search(start_state, grid):
             )
             new_state, triggered = apply_cell_effect(temp_state, grid)
             if new_state is None:
-                continue  # trap4 invalidated path
+                continue
 
             if new_state not in explored or new_cost < explored[new_state]:
                 child = SearchNode(new_state, cost=new_cost, parent=node)
                 child.triggered = triggered
                 heapq.heappush(frontier, child)
 
-        # end for neighbors
-
     return None
 
 
 # ------------------------------------------------------------
-# 8) PATH RECONSTRUCTION & PRINTING
+# 7) PATH RECONSTRUCTION & PRINTING
 # ------------------------------------------------------------
 def reconstruct_path(goal_node):
     """
