@@ -1,6 +1,7 @@
 import heapq
 from collections import namedtuple
 
+
 # ------------------------------------------------------------
 # 1) Defining the state space 
 # ------------------------------------------------------------ 
@@ -81,7 +82,7 @@ state_space = {
 # ------------------------------------------------------------
 # 2) Defining the cell types
 # ------------------------------------------------------------
-# We index rows 0..5 (top→bottom) and columns 0..9 (left→right). All traps and rewards are one-time uses. 
+# We index rows 0..5 (top→bottom) and columns 0..9 (left→right). Trap3 and rewards are one-time uses. 
 # Legend for values:
 #   'empty'    = plain hex
 #   'obstacle' = blocks movement (these are kept for grid customization flexibility)
@@ -90,7 +91,7 @@ state_space = {
 #   'trap1'    = doubles gravity
 #   'trap2'    = halves speed 
 #   'trap3'    = pushes you two steps forward
-#   'trap4'    = invalidates path if any treasure remains
+#   'trap4'    = ends the game (so we kind of hardcoded the search algorithm to avoid this)
 #   'reward1'  = halves gravity
 #   'reward2'  = doubles speed
 
@@ -116,6 +117,7 @@ cell_type = {
 
 def get_neighbors(pos):
     return state_space.get(pos, [])
+
 
 # ------------------------------------------------------------
 # 3. Mapping out the 2D grid
@@ -163,6 +165,7 @@ def make_grid():
         grid[0][0] = Cell('start', None)
 
     return grid, start, frozenset(treasures)
+
 
 # ------------------------------------------------------------
 # 4) State class & Search node class
@@ -229,6 +232,7 @@ class SearchNode:
                f"cost={self.cost}, "
                f"parent={self.parent}, "
                f"triggered={self.triggered})")
+
 
 # ------------------------------------------------------------
 # 5) Functions for Trap/Reward/Movement logic
@@ -425,7 +429,6 @@ def retrace_path(goal_node):
     costs.reverse()
 
     return path, triggers, costs
-
 
 def print_solution(goal_node, grid):
     path, triggers, costs = retrace_path(goal_node)
