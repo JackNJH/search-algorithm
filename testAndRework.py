@@ -361,7 +361,6 @@ def uniform_cost_search(start_state, grid):
                 actual_pos = get_trap3_destination((r, c), (nr, nc), grid)
                 bounced_from = (nr, nc)
 
-                # Mimic current state, then apply any effect there (to 'test' the outcome)
                 temp_state = State(
                     pos=actual_pos,
                     remaining=state.remaining,
@@ -378,7 +377,7 @@ def uniform_cost_search(start_state, grid):
                 move_cost = step_cost(state)
                 new_cost = cost + (step_cost(state) * 3)
 
-                # Put neighbors into queue list
+
                 if new_state not in explored or new_cost < explored[new_state]:
                     child = SearchNode(new_state, cost=new_cost, parent=node)
                     child.triggered = triggered
@@ -389,8 +388,9 @@ def uniform_cost_search(start_state, grid):
             # For other cell types: call apply_cell_effect to handle changes made to state normally
             move_cost = step_cost(state)
             new_cost = cost + move_cost
-
             actual_pos = (nr, nc)
+
+            # Mimic current state, then apply any effect there (to 'test' the outcome)
             temp_state = State(
                 pos=actual_pos,
                 remaining=state.remaining,
@@ -403,6 +403,7 @@ def uniform_cost_search(start_state, grid):
             if new_state is None:
                 continue
 
+            # Put neighbors into queue list
             if new_state not in explored or new_cost < explored[new_state]:
                 child = SearchNode(new_state, cost=new_cost, parent=node)
                 child.triggered = triggered
