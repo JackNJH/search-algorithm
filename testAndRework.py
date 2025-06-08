@@ -242,7 +242,7 @@ def step_cost(state):
     return state.gravity * (1.0 / state.speed)
 
 
-def apply_cell_effect(state, grid, from_pos=None):
+def apply_cell_effect(state, grid):
 
     # Get current position & properties
     r, c = state.pos
@@ -326,18 +326,26 @@ def uniform_cost_search(start_state, grid):
         (r, c) = state.pos
         ctype = grid[r][c].type
 
+        # Sidenote: This is ugly coding but it's the only way I can think of to include the trap3 node itself into the final search path without completely omitting it
+        # If we put the trap3's logic at apply_cell_effect, I can't rlly return both the state of trap3's node and the location after the boost
         if ctype == 'trap3' and node.parent:
-            pr, pc = node.parent.state.pos
-            dr, dc = r - pr, c - pc
+
+            # This determines the direction of the node
+            dr = r - node.parent.state.pos[0]
+            dc = c - node.parent.state.pos[1]
+
             step1 = (r + dr, c + dc)
             step2 = (step1[0] + dr, step1[1] + dc)
+
             rows, cols = len(grid), len(grid[0])
 
             for pos in [step1, step2]:
                 rr, cc = pos
+                # If steps r illegal, break (stay in same position)
                 if not (0 <= rr < rows and 0 <= cc < cols) or grid[rr][cc].type in ('obstacle', 'trap4'):
                     break
             else:
+                # Else we basically add the node that we boosted into into the frontier n continue processing the current node (trap3)
                 boosted_state = State(
                     pos=step2,
                     remaining=state.remaining,
@@ -347,7 +355,6 @@ def uniform_cost_search(start_state, grid):
                     used_trap3=state.used_trap3
                 )
                 boosted_node = SearchNode(boosted_state, cost=cost, parent=node)
-                boosted_node.triggered = ('boosted', (r, c))
                 heapq.heappush(frontier, boosted_node)
                 continue
 
@@ -378,7 +385,7 @@ def uniform_cost_search(start_state, grid):
             )
 
             # All logic from traps and rewards applied in apply_cell_effect
-            new_state, triggered = apply_cell_effect(temp_state, grid, from_pos=(r,c))
+            new_state, triggered = apply_cell_effect(temp_state, grid)
             if new_state is None:
                 continue
 
