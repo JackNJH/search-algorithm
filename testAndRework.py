@@ -368,7 +368,7 @@ def uniform_cost_search(start_state, grid):
                     gravity=state.gravity,
                     speed=state.speed,
                     used_rewards=state.used_rewards,
-                    used_trap3=frozenset()
+                    used_trap3=state.used_trap3
                 )
                 new_state, _ = apply_cell_effect(temp_state, grid)
                 if new_state is None:
@@ -397,7 +397,7 @@ def uniform_cost_search(start_state, grid):
                 gravity=state.gravity,
                 speed=state.speed,
                 used_rewards=state.used_rewards,
-                used_trap3=frozenset()
+                used_trap3=state.used_trap3
             )
             new_state, triggered = apply_cell_effect(temp_state, grid)
             if new_state is None:
