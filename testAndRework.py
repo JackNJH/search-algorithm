@@ -269,39 +269,9 @@ def apply_cell_effect(state, grid, from_pos=None):
         speed *= 0.5
         triggered = ('trap2', (r, c))
 
-    elif ctype == 'trap3':
-        if (r, c) not in used_trap3:
-            used_trap3.add((r, c))
-            triggered = ('trap3', (r, c))
-
-            if from_pos is not None:
-                print("from pos: ", from_pos)
-                # This determines the direction the node's going
-                dr = r - from_pos[0]
-                dc = c - from_pos[1]
-
-                step1 = (r + dr, c + dc)
-                step2 = (step1[0] + dr, step1[1] + dc)
-
-                rows, cols = len(grid), len(grid[0])
-
-                for pos in [step1, step2]:
-                    rr, cc = pos
-
-                    # If steps r illegal, breaks (stay at original node)
-                    if not (0 <= rr < rows and 0 <= cc < cols) or grid[rr][cc].type in ('obstacle', 'trap4'):
-                        break
-                else:
-                    # If steps r legal, recursively apply effect at new position
-                    bounce_state = State(
-                        pos=step2,
-                        remaining=frozenset(remaining_treasure),
-                        gravity=gravity,
-                        speed=speed,
-                        used_rewards=frozenset(used_rewards),
-                        used_trap3=frozenset(used_trap3)
-                    )
-                    return apply_cell_effect(bounce_state, grid, from_pos=(r, c))
+    elif ctype == 'trap3' and ((r,c) not in used_trap3):
+        used_trap3.add((r, c))
+        triggered = ('trap3', (r, c))
 
     elif ctype == 'trap4':
         triggered = ('trap4', (r, c))
@@ -354,11 +324,38 @@ def uniform_cost_search(start_state, grid):
             return node
 
         (r, c) = state.pos
+        ctype = grid[r][c].type
+
+        if ctype == 'trap3' and node.parent:
+            pr, pc = node.parent.state.pos
+            dr, dc = r - pr, c - pc
+            step1 = (r + dr, c + dc)
+            step2 = (step1[0] + dr, step1[1] + dc)
+            rows, cols = len(grid), len(grid[0])
+
+            for pos in [step1, step2]:
+                rr, cc = pos
+                if not (0 <= rr < rows and 0 <= cc < cols) or grid[rr][cc].type in ('obstacle', 'trap4'):
+                    break
+            else:
+                boosted_state = State(
+                    pos=step2,
+                    remaining=state.remaining,
+                    gravity=state.gravity,
+                    speed=state.speed,
+                    used_rewards=state.used_rewards,
+                    used_trap3=state.used_trap3
+                )
+                boosted_node = SearchNode(boosted_state, cost=cost, parent=node)
+                boosted_node.triggered = ('boosted', (r, c))
+                heapq.heappush(frontier, boosted_node)
+                continue
+
         for (nr, nc) in get_neighbors((r, c)):
-            ctype = grid[nr][nc].type
+            neighbor_type = grid[nr][nc].type
 
             # If neighbor is an obstacle: skip / ignore
-            if ctype == 'obstacle':
+            if neighbor_type == 'obstacle':
                 continue
 
             # If hex contains trap3 multiply the cost by 3
