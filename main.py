@@ -372,7 +372,7 @@ def uniform_cost_search(start_state, grid):
                     break
 
             else:
-                step1 = step2 = None # Invalid direction
+                step1 = step2 = None
 
             rows, cols = len(grid), len(grid[0])
             valid_boost = all(
