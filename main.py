@@ -356,39 +356,32 @@ def uniform_cost_search(start_state, grid):
 
             for i, (drr, dcc) in enumerate(parent_dirs):
                 if (dr, dc) == (drr, dcc):
-                    # Now we know which direction we moving towards
-                    direction_idx = i
 
+                    # Now we know which direction we moving towards(i)
                     # Apply direction from trap3 using the current cell's parity
-                    curr_parity = c % 2
-                    dir1_r, dir1_c = (ODD_COL_DIRS if curr_parity else EVEN_COL_DIRS)[direction_idx]
-                    step1 = (r + dir1_r, c + dir1_c)
+                    current_direction = ODD_COL_DIRS if c % 2 else EVEN_COL_DIRS
+                    step1_r = r + current_direction[i][0]
+                    step1_c = c + current_direction[i][1]
+                    step1 = (step1_r, step1_c)
 
                     # Apply same direction from step1 using its parity
-                    step1_r, step1_c = step1
-                    step1_parity = step1_c % 2
-                    dir2_r, dir2_c = (ODD_COL_DIRS if step1_parity else EVEN_COL_DIRS)[direction_idx]
-                    step2 = (step1_r + dir2_r, step1_c + dir2_c)
+                    next_direction = ODD_COL_DIRS if step1_c % 2 else EVEN_COL_DIRS
+                    step2_r = step1_r + next_direction[i][0]
+                    step2_c = step1_c + next_direction[i][1]
+                    step2 = (step2_r, step2_c)
                     break
 
             else:
-                step2 = None # Invalid direction
+                step1 = step2 = None # Invalid direction
 
             rows, cols = len(grid), len(grid[0])
-
-            valid_boost = True
-            for pos in [step1, step2]:
-                if pos is None:
-                    valid_boost = False
-                    break
-                rr, cc = pos
-                # If we're running into obstacle / traps / invalid grids, break n stay at the same spot
-                if not (0 <= rr < rows and 0 <= cc < cols) or grid[rr][cc].type in ('obstacle', 'trap4'):
-                    valid_boost = False
-                    break
+            valid_boost = all(
+                pos and 0 <= pos[0] < rows and 0 <= pos[1] < cols and grid[pos[0]][pos[1]].type not in ('obstacle', 'trap4')
+                for pos in [step1, step2]
+            )
             
             if valid_boost:
-                # Else we basically add the node that we boosted into into the frontier n continue processing the current node (trap3)
+                # If we're not out of bounds or on an obstacle/trap4, add the node that we boosted into into the frontier n continue processing the current node (trap3)
                 boosted_state = State(
                     pos=step2,
                     remaining=state.remaining,
