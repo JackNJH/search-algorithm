@@ -171,7 +171,7 @@ def make_grid():
 # 4) State class & Search node class
 # ------------------------------------------------------------
 class State:
-    __slots__ = ('pos', 'remaining', 'gravity', 'speed', 'used_rewards', 'used_trap3')
+    _slots_ = ('pos', 'remaining', 'gravity', 'speed', 'used_rewards', 'used_trap3')
 
     def __init__(self, pos, remaining, gravity=1.0, speed=1.0,
                  used_rewards=frozenset(), used_trap3=frozenset()):
@@ -214,7 +214,7 @@ class State:
 # A wrapper around State class that tracks how you got to this state (parent) and total cost
 # Helps with backtracking to full path later on
 class SearchNode:
-    __slots__ = ('state', 'cost', 'parent', 'triggered')
+    _slots_ = ('state', 'cost', 'parent', 'triggered')
 
     def __init__(self, state, cost, parent=None):
         self.state = state
@@ -242,25 +242,33 @@ def step_cost(state):
     return state.gravity * (1.0 / state.speed)
 
 
-def apply_cell_effect(state, grid):
+import heapq
 
-    # Get current position & properties
+def apply_cell_effect(state, grid):
+    """
+    Applies the effect of landing on a cell:
+    - Treasure collection
+    - trap1, trap2, trap4
+    - trap3: only flags the trap, does NOT move you here
+    - reward1, reward2
+    Returns: (new_state, new_pos, triggered)
+    """
     r, c = state.pos
-    remaining_treasure = set(state.remaining)
+    remaining = set(state.remaining)
     gravity = state.gravity
     speed = state.speed
     used_rewards = set(state.used_rewards)
     used_trap3 = set(state.used_trap3)
     ctype = grid[r][c].type
-    triggered = None # helps with printing the output later
+    triggered = None
+    new_pos = (r, c)
 
-    # Collect treasure if present
-    if ctype == 'treasure' and (r, c) in remaining_treasure:
-        remaining_treasure.remove((r, c))
+    # Treasure
+    if ctype == 'treasure' and (r, c) in remaining:
+        remaining.remove((r, c))
         triggered = ('treasure', (r, c))
 
-    # Apply traps & rewards
-    # Note: all rewards & trap3 can only be used once
+    # Traps & rewards
     elif ctype == 'trap1':
         gravity *= 2.0
         triggered = ('trap1', (r, c))
@@ -269,130 +277,143 @@ def apply_cell_effect(state, grid):
         speed *= 0.5
         triggered = ('trap2', (r, c))
 
-    elif ctype == 'trap3' and ((r,c) not in used_trap3):
+    # Modified trap3: only mark it, do NOT move here
+    elif ctype == 'trap3' and (r, c) not in used_trap3:
         used_trap3.add((r, c))
         triggered = ('trap3', (r, c))
 
     elif ctype == 'trap4':
         triggered = ('trap4', (r, c))
-        if remaining_treasure:
-            return None, triggered
-        remaining_treasure.clear()
+        if remaining:
+            return None, None, triggered
+        remaining.clear()
 
-    elif ctype == 'reward1' and ((r, c) not in used_rewards):
+    elif ctype == 'reward1' and (r, c) not in used_rewards:
         gravity *= 0.5
         used_rewards.add((r, c))
         triggered = ('reward1', (r, c))
 
-    elif ctype == 'reward2' and ((r, c) not in used_rewards):
+    elif ctype == 'reward2' and (r, c) not in used_rewards:
         speed *= 2.0
         used_rewards.add((r, c))
         triggered = ('reward2', (r, c))
 
     new_state = State(
-        pos=(r, c),
-        remaining=frozenset(remaining_treasure),
+        pos=new_pos,
+        remaining=frozenset(remaining),
         gravity=gravity,
         speed=speed,
         used_rewards=frozenset(used_rewards),
         used_trap3=frozenset(used_trap3)
     )
-    return new_state, triggered
-
+    return new_state, new_pos, triggered
 
 # ------------------------------------------------------------
 # 6) Behold behold the Search Algorithm
 # ------------------------------------------------------------
-def uniform_cost_search(start_state, grid):
 
+
+def uniform_cost_search(start_state, grid):
+    """
+    UCS that handles trap3 by sending you back to your grandparent’s cell.
+    """
     frontier = []
-    heapq.heappush(frontier, SearchNode(start_state, cost=0.0)) # heapq sorts the frontier based on cost so we dont have to do it manually
+    heapq.heappush(frontier, SearchNode(start_state, cost=0.0))
     explored = {}
 
     while frontier:
         node = heapq.heappop(frontier)
-        state = node.state
-        cost = node.cost
+        state, cost = node.state, node.cost
 
-        # Duplication check
+        # Skip if we've seen a cheaper path to this state
         if state in explored and explored[state] <= cost:
             continue
-        explored[state] = cost # Store state & cost in 'explored'
+        explored[state] = cost
 
-        # Goal check
+        # Goal check: all treasures collected
         if not state.remaining:
             return node
 
-        (r, c) = state.pos
-        ctype = grid[r][c].type
+        # Apply cell effect at current pos
+        new_state, _, triggered = apply_cell_effect(state, grid)
+        if new_state is None:
+            continue
 
-        # Sidenote: This is ugly coding but it's the only way I can think of to include the trap3 node itself into the final search path without completely omitting it
-        # If we put the trap3's logic at apply_cell_effect, I can't rlly return both the state of trap3's node and the location after the boost
-        if ctype == 'trap3' and node.parent:
-
-            # This determines the direction of the node
-            dr = r - node.parent.state.pos[0]
-            dc = c - node.parent.state.pos[1]
-
-            step1 = (r + dr, c + dc)
-            step2 = (step1[0] + dr, step1[1] + dc)
-
-            rows, cols = len(grid), len(grid[0])
-
-            for pos in [step1, step2]:
-                rr, cc = pos
-                # If steps r illegal, break (stay in same position)
-                if not (0 <= rr < rows and 0 <= cc < cols) or grid[rr][cc].type in ('obstacle', 'trap4'):
-                    break
+        # Handle trap3: send back to grandparent
+        if triggered and triggered[0] == 'trap3':
+            # find grandparent position
+            if node.parent and node.parent.parent:
+                land_pos = node.parent.parent.state.pos
             else:
-                # Else we basically add the node that we boosted into into the frontier n continue processing the current node (trap3)
-                boosted_state = State(
-                    pos=step2,
+                land_pos = node.parent.state.pos  # fallback for start
+            back_steps = 2
+            new_cost = cost + step_cost(state) * (1 + back_steps)
+
+
+            child_state = State(
+                pos=land_pos,
+                remaining=new_state.remaining,
+                gravity=new_state.gravity,
+                speed=new_state.speed,
+                used_rewards=new_state.used_rewards,
+                used_trap3=new_state.used_trap3
+            )
+            child = SearchNode(child_state, cost=new_cost, parent=node)
+            child.triggered = [triggered]
+            heapq.heappush(frontier, child)
+            continue
+
+        # Normal neighbor expansion
+        r, c = state.pos
+        for (nr, nc) in get_neighbors((r, c)):
+            cell_t = grid[nr][nc].type
+            if cell_t == 'obstacle':
+                continue
+
+            # --- Handle trap3 neighbor explicitly ---
+            if cell_t == 'trap3' and (nr, nc) not in state.used_trap3:
+                # cost: 1 step onto trap + 2‐step penalty
+                penalty_cost = step_cost(state) * (1 + 2)
+
+                # landing spot = your grandparent’s pos (or fallback to parent)
+                if node.parent and node.parent.parent:
+                    land_pos = node.parent.parent.state.pos
+                else:
+                    land_pos = node.parent.state.pos
+
+                # build new state with trap3 flagged
+                new_state = State(
+                    pos=land_pos,
                     remaining=state.remaining,
                     gravity=state.gravity,
                     speed=state.speed,
                     used_rewards=state.used_rewards,
-                    used_trap3=state.used_trap3
+                    used_trap3=state.used_trap3 | { (nr, nc) }
                 )
-                boosted_node = SearchNode(boosted_state, cost=cost, parent=node)
-                heapq.heappush(frontier, boosted_node)
+                child = SearchNode(new_state, cost=cost + penalty_cost, parent=node)
+                child.triggered = [('trap3', (nr, nc))]
+                heapq.heappush(frontier, child)
                 continue
 
-        for (nr, nc) in get_neighbors((r, c)):
-            neighbor_type = grid[nr][nc].type
+            # --- All other moves ---
+            move_cost = step_cost(state)  # just one step
+            tentative_cost = cost + move_cost
 
-            # If neighbor is an obstacle: skip / ignore
-            if neighbor_type == 'obstacle':
-                continue
-
-            # If hex contains trap3 multiply the cost by 3
-            if grid[nr][nc].type == 'trap3':
-                move_cost = step_cost(state) * 3
-            else:
-                move_cost = step_cost(state)
-
-            new_cost = cost + move_cost
-            actual_pos = (nr, nc)
-
-            # Copy current state...
-            temp_state = State(
-                pos=actual_pos,
+            temp = State(
+                pos=(nr, nc),
                 remaining=state.remaining,
                 gravity=state.gravity,
                 speed=state.speed,
                 used_rewards=state.used_rewards,
                 used_trap3=state.used_trap3
             )
-
-            # ...then apply neighbor cell effects in apply_cell_effect
-            new_state, triggered = apply_cell_effect(temp_state, grid)
-            if new_state is None:
+            child_state, _, trig = apply_cell_effect(temp, grid)
+            if child_state is None:
                 continue
 
-            # Put would-be state into queue list
-            if new_state not in explored or new_cost < explored[new_state]:
-                child = SearchNode(new_state, cost=new_cost, parent=node)
-                child.triggered = triggered
+            if child_state not in explored or tentative_cost < explored[child_state]:
+                child = SearchNode(child_state, cost=tentative_cost, parent=node)
+                child.triggered = trig
                 heapq.heappush(frontier, child)
 
     return None
@@ -443,7 +464,7 @@ def print_solution(goal_node, grid):
                       f"(step: {step_cost_val:.3f}, cumulative: {cost:.3f})")
 
 
-if __name__ == "__main__":
+if _name_ == "_main_":
     grid, start_pos, all_treasures = make_grid()
 
     print("=== TREASURE HUNT SETUP ===")
