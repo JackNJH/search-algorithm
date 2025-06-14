@@ -457,7 +457,7 @@ def print_solution(goal_node, grid):
     path, triggers, costs = retrace_path(goal_node)
     print("\n=== SOLUTION FOUND ===")
     print(f"Total cost: {goal_node.cost:.3f}")
-    print(f"Path length: {len(path)} steps")
+    print(f"Path length: {len(path)-1} steps")
     print(f"Final state: {goal_node.state}")
 
     print("\n=== DETAILED PATH WITH COST VERIFICATION ===")
@@ -466,16 +466,16 @@ def print_solution(goal_node, grid):
         ctype = grid[r][c].type
         cost = costs[i]
         if i == 0:
-            print(f"Step {i+1:2d}: {pos} [{ctype:8s}] -- START (cumulative: {cost:.3f})")
+            print(f"Step {i:2d}: {pos} [{ctype:8s}] -- START (cumulative: {cost:.3f})")
         else:
             step_cost_val = costs[i] - costs[i-1] # calculate cost of THIS step
             trig = triggers[i]
             if trig:
                 effect, coord = trig
-                print(f"Step {i+1:2d}: {pos} [{ctype:8s}] -- {effect} at {coord} "
+                print(f"Step {i:2d}: {pos} [{ctype:8s}] -- {effect} at {coord} "
                       f"(step: {step_cost_val:.3f}, cumulative: {cost:.3f})")
             else:
-                print(f"Step {i+1:2d}: {pos} [{ctype:8s}] -- moved "
+                print(f"Step {i:2d}: {pos} [{ctype:8s}] -- moved "
                       f"(step: {step_cost_val:.3f}, cumulative: {cost:.3f})")
 
 
