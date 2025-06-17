@@ -10,7 +10,7 @@ A Python program that solves a treasure hunt problem in a virtual world filled w
 ## Final Path and Labeled Map
 | Final Path Taken | Labeled Map |
 |------------------|-------------|
-| ![Final Path](images/final_path.png) | ![Labeled Map](images/labeled_cells.png) |
+| ![Final Path](images/final_path.png) | ![Labeled Map](images/labeled_cells.jpg) |
 | *The final path for assignment's map* | *Map with each cell labeled for reference* |
 
 ## Requirements
