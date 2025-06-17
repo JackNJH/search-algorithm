@@ -473,10 +473,10 @@ def print_solution(goal_node, grid):
             if trig:
                 effect, coord = trig
                 print(f"Step {i:2d}: {pos} [{ctype:8s}] -- {effect} at {coord} "
-                      f"(step: {step_cost_val:.3f}, cumulative: {cost:.3f})")
+                      f"(cost: {step_cost_val:.3f}, cumulative: {cost:.3f})")
             else:
                 print(f"Step {i:2d}: {pos} [{ctype:8s}] -- moved "
-                      f"(step: {step_cost_val:.3f}, cumulative: {cost:.3f})")
+                      f"(cost: {step_cost_val:.3f}, cumulative: {cost:.3f})")
 
 
 if __name__ == "__main__":
